@@ -59,3 +59,17 @@ export interface TeamFormData {
   ageGroup: string;
   division?: string;
 }
+
+// In-progress game state for persistence
+export interface InProgressGame {
+  id: string;
+  teamId: string;
+  teamName: string;
+  players: Player[];
+  gameTime: number; // current game time in seconds
+  gameDuration: number; // total game duration in minutes
+  isGameRunning: boolean;
+  gameStarted: boolean;
+  startedAt: Date; // when the game was started
+  lastUpdatedAt: Date; // last time the game state was saved
+}

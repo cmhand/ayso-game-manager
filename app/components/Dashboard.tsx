@@ -5,7 +5,7 @@ import {
   Users,
   History,
 } from "lucide-react";
-import { Team, TeamFormData, DashboardView, GameStats, Game } from "../types";
+import { Team, TeamFormData, DashboardView, GameStats, Game, InProgressGame } from "../types";
 import TeamManager from "./TeamManager";
 import RosterManager from "./RosterManager";
 import GameManager from "./GameManager";
@@ -17,6 +17,7 @@ const Dashboard: React.FC = () => {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [gameTeam, setGameTeam] = useState<Team | null>(null);
   const [gameHistory, setGameHistory] = useState<Game[]>([]);
+  const [inProgressGame, setInProgressGame] = useState<InProgressGame | null>(null);
 
   // Load data from localStorage on component mount
   useEffect(() => {
@@ -33,7 +34,37 @@ const Dashboard: React.FC = () => {
         console.error("Error loading teams from localStorage:", error);
       }
     }
+
+    // Check for in-progress games
+    const savedInProgressGame = localStorage.getItem("ayso-in-progress-game");
+    if (savedInProgressGame) {
+      try {
+        const parsedInProgressGame: InProgressGame = JSON.parse(savedInProgressGame);
+        parsedInProgressGame.startedAt = new Date(parsedInProgressGame.startedAt);
+        parsedInProgressGame.lastUpdatedAt = new Date(parsedInProgressGame.lastUpdatedAt);
+        setInProgressGame(parsedInProgressGame);
+      } catch (error) {
+        console.error("Error loading in-progress game from localStorage:", error);
+        // Clean up corrupted data
+        localStorage.removeItem("ayso-in-progress-game");
+      }
+    }
   }, []);
+
+  // Auto-resume in-progress game when teams are loaded
+  useEffect(() => {
+    if (inProgressGame && teams.length > 0) {
+      const team = teams.find(t => t.id === inProgressGame.teamId);
+      if (team) {
+        setGameTeam(team);
+        setCurrentView("game");
+      } else {
+        // Team not found, clean up the in-progress game
+        localStorage.removeItem("ayso-in-progress-game");
+        setInProgressGame(null);
+      }
+    }
+  }, [inProgressGame, teams]);
 
   // Save teams to localStorage whenever teams change
   useEffect(() => {
@@ -93,6 +124,9 @@ const Dashboard: React.FC = () => {
   };
 
   const startGame = (team: Team) => {
+    // Clear any existing in-progress game when starting a new one
+    setInProgressGame(null);
+    localStorage.removeItem("ayso-in-progress-game");
     setGameTeam(team);
     setCurrentView("game");
   };
@@ -122,6 +156,7 @@ const Dashboard: React.FC = () => {
 
     setGameHistory([newGame, ...gameHistory]);
     setGameTeam(null);
+    setInProgressGame(null);
     setCurrentView("teams");
   };
 
@@ -132,6 +167,30 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen max-h-screen flex flex-col bg-gradient-to-br from-green-50 via-blue-50 to-green-50">
+      {/* In-Progress Game Banner */}
+      {inProgressGame && currentView !== "game" && (
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-3 text-center">
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
+            <span className="text-lg">⏰</span>
+            <span className="font-semibold">
+              You have a game in progress with {inProgressGame.teamName}
+            </span>
+            <button
+              onClick={() => {
+                const team = teams.find(t => t.id === inProgressGame.teamId);
+                if (team) {
+                  setGameTeam(team);
+                  setCurrentView("game");
+                }
+              }}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg text-sm font-medium transition-colors"
+            >
+              Resume Game
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md shadow-xl border-b border-green-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -243,7 +302,11 @@ const Dashboard: React.FC = () => {
 
           {currentView === "game" && gameTeam && (
             <div className="space-y-6">
-              <GameManager team={gameTeam} onEndGame={onEndGame} />
+              <GameManager 
+                team={gameTeam} 
+                onEndGame={onEndGame} 
+                inProgressGame={inProgressGame || undefined}
+              />
             </div>
           )}
 

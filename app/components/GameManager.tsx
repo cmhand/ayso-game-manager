@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Play, Pause, UserPlus, Clock, Users, Trash2 } from "lucide-react";
-import { GameStats, Player, Team } from "../types";
+import { GameStats, Player, Team, InProgressGame } from "../types";
 
 const gameDurations = {
   "6U": 20,
@@ -15,9 +15,11 @@ const gameDurations = {
 const GameManager = ({
   team,
   onEndGame,
+  inProgressGame,
 }: {
   team: Team;
   onEndGame: (gameStats: GameStats) => void;
+  inProgressGame?: InProgressGame;
 }) => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [newPlayerName, setNewPlayerName] = useState("");
@@ -27,17 +29,44 @@ const GameManager = ({
   const [gameStarted, setGameStarted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [verifyGameEnded, setVerifyGameEnded] = useState(false);
+  const [gameId, setGameId] = useState<string>("");
 
   useEffect(() => {
     setIsMobile(window.innerWidth < 768);
   }, []);
 
+  // Initialize game state from in-progress game or team data
   useEffect(() => {
-    if (team) {
+    if (inProgressGame) {
+      // Restore from in-progress game
+      // To update the game time, we need to add the difference between the current time and the started at time
+      const currentTime = new Date();
+      const lastUpdatedAt = new Date(inProgressGame.lastUpdatedAt);
+      const timeDifference = inProgressGame.isGameRunning
+        ? currentTime.getTime() - lastUpdatedAt.getTime()
+        : 0;
+      const timeToAdd = Math.round(timeDifference / 1000);
+      const newGameTime = Math.floor(inProgressGame.gameTime + timeToAdd);
+      setGameId(inProgressGame.id);
+      setPlayers(inProgressGame.players);
+      setGameDuration(inProgressGame.gameDuration);
+      setGameTime(newGameTime);
+      setIsGameRunning(inProgressGame.isGameRunning);
+      setGameStarted(inProgressGame.gameStarted);
+    } else {
+      // Create new game
+      setGameId(
+        `game-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      );
+    }
+  }, [inProgressGame]);
+
+  useEffect(() => {
+    if (team && !inProgressGame) {
       setGameDuration(
         gameDurations[team.ageGroup as keyof typeof gameDurations]
       );
-      // Reset all player stats when team changes
+      // Reset all player stats when team changes (only for new games)
       const resetPlayers = team.players.map((player) => ({
         ...player,
         isPlaying: true,
@@ -50,7 +79,7 @@ const GameManager = ({
       }));
       setPlayers(resetPlayers);
     }
-  }, [team]);
+  }, [team, inProgressGame]);
 
   // Timer effect
   useEffect(() => {
@@ -81,14 +110,18 @@ const GameManager = ({
             totalGameTimeSeconds > 0 && player.playingTime > 0
               ? (player.playingTime / totalGameTimeSeconds) * 100
               : 0;
-          const sittingPercentage = player.playingTime > 0 ? Math.max(100 - playingPercentage, 0) : 0;
+          const sittingPercentage =
+            player.playingTime > 0 ? Math.max(100 - playingPercentage, 0) : 0;
 
           // Project final percentages
           const remainingTime = gameDuration * 60 - totalGameTimeSeconds;
           const projectedPlayingTime = player.playingTime + remainingTime;
           const projectedPlayingPercentage =
             (projectedPlayingTime / (gameDuration * 60)) * 100;
-          const projectedSittingPercentage = Math.max(100 - projectedPlayingPercentage, 0);
+          const projectedSittingPercentage = Math.max(
+            100 - projectedPlayingPercentage,
+            0
+          );
 
           return {
             ...player,
@@ -124,6 +157,40 @@ const GameManager = ({
       );
     }
   }, [gameTime, isGameRunning]);
+
+  // Save in-progress game state to localStorage
+  const saveInProgressGame = () => {
+    if (gameStarted && gameId) {
+      const inProgressGameState: InProgressGame = {
+        id: gameId,
+        teamId: team.id,
+        teamName: team.name,
+        players: players,
+        gameTime: gameTime,
+        gameDuration: gameDuration,
+        isGameRunning: isGameRunning,
+        gameStarted: gameStarted,
+        startedAt: inProgressGame?.startedAt || new Date(),
+        lastUpdatedAt: new Date(),
+      };
+      localStorage.setItem(
+        "ayso-in-progress-game",
+        JSON.stringify(inProgressGameState)
+      );
+    }
+  };
+
+  // Save game state whenever relevant state changes
+  useEffect(() => {
+    if (gameStarted) {
+      saveInProgressGame();
+    }
+  }, [gameTime, players, isGameRunning, gameStarted, gameDuration]);
+
+  // Clean up in-progress game from localStorage when game ends
+  const clearInProgressGame = () => {
+    localStorage.removeItem("ayso-in-progress-game");
+  };
 
   const addPlayer = () => {
     if (newPlayerName.trim() && !gameStarted) {
@@ -194,6 +261,7 @@ const GameManager = ({
         projectedSittingPercentage: 0,
       }))
     );
+    clearInProgressGame();
   };
 
   const verifyEndGame = () => {
@@ -204,6 +272,7 @@ const GameManager = ({
     // First verify that the game has actually ended
     setIsGameRunning(false);
     setGameStarted(false);
+    clearInProgressGame();
     onEndGame({
       players: players.map((player) => ({
         playerId: player.id,
@@ -220,9 +289,17 @@ const GameManager = ({
       <div className="bg-white rounded-lg shadow-lg p-6">
         <div className="flex items-center gap-3 mb-6">
           <Users className="text-green-600" size={32} />
-          <h1 className="text-3xl font-bold text-green-800">
-            AYSO Team Manager
-          </h1>
+          <div>
+            <h1 className="text-3xl font-bold text-green-800">
+              AYSO Team Manager
+            </h1>
+            {inProgressGame && (
+              <p className="text-sm text-blue-600 font-semibold bg-blue-100 px-2 py-1 rounded mt-1 inline-block">
+                ⏰ Resumed Game - Started{" "}
+                {inProgressGame.startedAt.toLocaleString()}
+              </p>
+            )}
+          </div>
         </div>
 
         {!gameStarted ? (
